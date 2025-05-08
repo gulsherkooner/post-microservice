@@ -253,6 +253,6 @@ router.get('/', async (req, res) => {
     logger.error(`Error retrieving posts: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
-});
+});   
 
 module.exports = router;
