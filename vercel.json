@@ -41,15 +41,15 @@
   ],
   "functions": {
     "api/*": {
-      "maxDuration": 3600,
+      "maxDuration": 899,
       "memory": 1024
     },
     "/*": {
-      "maxDuration": 3600,
+      "maxDuration": 899,
       "memory": 1024
     },
     "/posts/*": {
-      "maxDuration": 3600,
+      "maxDuration": 899,
       "memory": 1024
     }
   },
