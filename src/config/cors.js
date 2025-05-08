@@ -1,6 +1,11 @@
 const cors = require('cors');
+
 module.exports = cors({
-  origin: '*', // Adjust based on your security requirements
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+  origin: [
+    "https://api-gateway-sooty-nine.vercel.app",
+    "http://localhost:3001",
+    "https://api-gateway-sooty-nine.vercel.app"
+  ], // Array of allowed origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // HTTP methods
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'], // Allowed headers
 });
