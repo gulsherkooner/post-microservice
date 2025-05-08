@@ -42,18 +42,15 @@
   "functions": {
     "api/*": {
       "maxDuration": 3600,
-      "memory": 1024,
-      "maxBodySize": "100mb"
+      "memory": 1024
     },
     "/*": {
       "maxDuration": 3600,
-      "memory": 1024,
-      "maxBodySize": "100mb"
+      "memory": 1024
     },
     "/posts/*": {
       "maxDuration": 3600,
-      "memory": 1024,
-      "maxBodySize": "100mb"
+      "memory": 1024
     }
   },
   "env": {
