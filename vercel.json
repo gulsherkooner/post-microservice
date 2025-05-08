@@ -39,6 +39,23 @@
       }
     }
   ],
+  "functions": {
+    "api/*": {
+      "maxDuration": 3600,
+      "memory": 1024,
+      "maxBodySize": "100mb"
+    },
+    "/*": {
+      "maxDuration": 3600,
+      "memory": 1024,
+      "maxBodySize": "100mb"
+    },
+    "/posts/*": {
+      "maxDuration": 3600,
+      "memory": 1024,
+      "maxBodySize": "100mb"
+    }
+  },
   "env": {
     "NODE_ENV": "production"
   }
