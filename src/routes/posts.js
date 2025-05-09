@@ -147,7 +147,7 @@ router.put('/:post_id', async (req, res) => {
     post.post_tags = post_tags !== undefined ? post_tags : post.post_tags;
     post.visibility = visibility !== undefined ? visibility : post.visibility;
     post.duration = duration !== undefined ? duration : post.duration;
-    post.updated_at = Date.now();
+    post.updated_at = Date.now();  
 
     // If media is provided, replace existing media
     if (media !== undefined) {
