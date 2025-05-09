@@ -254,7 +254,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:user_id', async (req, res) => {
+router.get('/user/:user_id', async (req, res) => {
   const authenticatedUserId = req.headers['x-user-id'];
   const { user_id } = req.params;
 
