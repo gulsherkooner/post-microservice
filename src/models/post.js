@@ -15,7 +15,7 @@ const postSchema = new mongoose.Schema({
   visibility: { type: String, default: 'public', enum: ['public', 'private', 'followers'] },
   likes_count: { type: Number, default: 0 },
   comments_count: { type: Number, default: 0 },
-  is_active: { type: Boolean, default: true },
+  is_active: { type: Boolean, default: true }, 
 });
 
 module.exports = mongoose.model('Post', postSchema);

@@ -4,13 +4,15 @@ const { v4: uuidv4 } = require('uuid');
 const Post = require('../models/post');
 const PostMedia = require('../models/postMedia');
 const logger = require('../config/logger');
-const fs = require('fs').promises;
-const path = require('path');
-const {Dropbox} = require("dropbox");
-const getDbxToken  = require('../utils/getDbxToken.js');
+const { Dropbox } = require('dropbox');
+const getDbxToken = require('../utils/getDbxToken.js');
 const UploadToDropbox = require('../config/dropbox.js');
 
 const router = express.Router();
+
+// Middleware to increase payload size limit
+router.use(express.json({ limit: '50mb' }));
+router.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Create a new post
 router.post('/', async (req, res) => {
@@ -85,12 +87,12 @@ router.post('/', async (req, res) => {
       category,
       post_tags,
       visibility: visibility || 'public',
-      is_reel: false,
+      is_reel: post_type === 'video' && media.length === 1 && (media[0].height > media[0].width || false),
     });
 
     const savedPost = await post.save();
 
-    res.status(201).json({ savedPost });
+    res.status(201).json({ post: savedPost });
   } catch (error) {
     logger.error(`Error creating post: ${error.message}`);
     res.status(500).json({ error: error.message });
@@ -113,8 +115,7 @@ router.get('/:post_id', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const media = await PostMedia.find({ post_id });
-    res.json({ post: { ...post.toObject(), media } });
+    res.json({ post });
   } catch (error) {
     logger.error(`Error retrieving post: ${error.message}`);
     res.status(500).json({ error: error.message });
@@ -129,7 +130,7 @@ router.put('/:post_id', async (req, res) => {
   }
 
   const { post_id } = req.params;
-  const { title, description, category, post_tags, visibility, duration, media } = req.body;
+  const { title, description, category, post_tags, visibility, media } = req.body;
 
   try {
     const post = await Post.findOne({ post_id, is_active: true });
@@ -146,8 +147,7 @@ router.put('/:post_id', async (req, res) => {
     post.category = category !== undefined ? category : post.category;
     post.post_tags = post_tags !== undefined ? post_tags : post.post_tags;
     post.visibility = visibility !== undefined ? visibility : post.visibility;
-    post.duration = duration !== undefined ? duration : post.duration;
-    post.updated_at = Date.now();  
+    post.updated_at = Date.now();
 
     // If media is provided, replace existing media
     if (media !== undefined) {
@@ -161,53 +161,55 @@ router.put('/:post_id', async (req, res) => {
       if (post.post_type === 'carousel' && (media.length < 2 || media.some(m => m.media_type !== 'image'))) {
         return res.status(400).json({ error: 'Carousel posts should have at least two image media' });
       }
-      if (post.post_type === 'video' && (media.length !== 1 || media[0].media_type !== 'video' || !media[0].media_content)) {
+      if (post.post_type === 'video' && (media.length > 1 || media[0].media_type !== 'video' || !media[0].media_content)) {
         return res.status(400).json({ error: 'Video posts should have exactly one video media with media_content' });
       }
 
+      // Upload to Dropbox
+      const dbxAccessToken = await getDbxToken();
+      if (!dbxAccessToken) {
+        logger.error('Failed to get Dropbox access token');
+        return res.status(500).json({ error: 'Failed to get Dropbox access token' });
+      }
+
+      const media_array = [];
       await PostMedia.deleteMany({ post_id });
-      let mediaDocs = [];
+
       if (media.length > 0) {
-        if (post.post_type === 'video') {
-          const videoMedia = media[0];
-          const fileName = `${post_id}-${Date.now()}.mp4`;
-          const filePath = path.join(__dirname, '../../Uploads', fileName);
-          const fileUrl = `/Uploads/${fileName}`;
+        const mediaPromises = media.map(async (m, i) => {
+          let media_url = null;
+          if (m.media_type === 'video' || m.media_type === 'image') {
+            const fileName = m.media_name;
+            const fileContent = m.media_content;
+            media_url = await UploadToDropbox(fileContent, fileName, dbxAccessToken, res);
+            if (!media_url) {
+              throw new Error(`Failed to upload media ${fileName} to Dropbox`);
+            }
+            const mediaDoc = new PostMedia({
+              post_id,
+              media_type: m.media_type,
+              url: media_url,
+              order: i,
+            });
+            await mediaDoc.save();
+            logger.info(`Saved updated media document: ${mediaDoc}`);
+            return media_url;
+          }
+          return null;
+        });
 
-          // Save base64 video content to file
-          await fs.writeFile(filePath, Buffer.from(videoMedia.media_content, 'base64'));
-          logger.info(`Saved updated video file: ${filePath}`);
+        const uploadedUrls = await Promise.all(mediaPromises);
+        media_array.push(...uploadedUrls.filter(url => url !== null));
+      }
 
-          mediaDocs = [{
-            post_id,
-            media_type: 'video',
-            url: fileUrl,
-            thumbnail_url: videoMedia.thumbnail_url || '',
-            order: 0,
-            width: videoMedia.width || 0,
-            height: videoMedia.height || 0,
-          }];
-        } else {
-          mediaDocs = media.map((m, index) => ({
-            post_id,
-            media_type: m.media_type,
-            url: m.url,
-            thumbnail_url: m.thumbnail_url,
-            order: m.order || index,
-            width: m.width,
-            height: m.height,
-          }));
-        }
-        await PostMedia.insertMany(mediaDocs);
-        if (post.post_type === 'video') {
-          post.is_reel = mediaDocs[0].height > mediaDocs[0].width;
-        }
+      post.url = media_array;
+      if (post.post_type === 'video' && media.length === 1) {
+        post.is_reel = media[0].height > media[0].width || false;
       }
     }
 
     const updatedPost = await post.save();
-    const updatedMedia = await PostMedia.find({ post_id });
-    res.json({ post: { ...updatedPost.toObject(), media: updatedMedia } });
+    res.json({ post: updatedPost });
   } catch (error) {
     logger.error(`Error updating post: ${error.message}`);
     res.status(500).json({ error: error.message });
@@ -241,18 +243,36 @@ router.delete('/:post_id', async (req, res) => {
   }
 });
 
+// Retrieve all public posts
 router.get('/', async (req, res) => {
   try {
     const posts = await Post.find({ is_active: true, visibility: 'public' });
-    // const postsWithMedia = await Promise.all(posts.map(async (post) => {
-      // const media = await PostMedia.find({ post_id: post.post_id });
-      // return { ...post.toObject(), media };
-    // }));
-    res.json({ posts: posts });
+    res.json({ posts });
   } catch (error) {
     logger.error(`Error retrieving posts: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
-});   
+});
+
+router.get('/:user_id', async (req, res) => {
+  const authenticatedUserId = req.headers['x-user-id'];
+  const { user_id } = req.params;
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (authenticatedUserId !== user_id) {
+    return res.status(403).json({ error: 'Forbidden: You can only access your own posts' });
+  }
+
+  try {
+    const posts = await Post.find({ user_id, is_active: true });
+    res.json({ posts });
+  } catch (error) {
+    logger.error(`Error retrieving posts for user ${user_id}: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 module.exports = router;
