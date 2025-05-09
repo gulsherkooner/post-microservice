@@ -1,7 +1,7 @@
 const cors = require('cors');
 
 module.exports = (req, res, next) => {
-  const allowedOrigins = ['https://api-gateway-sooty-nine.vercel.app', 'http://localhost:3001'];
+  const allowedOrigins = ['https://api-gateway-eta-navy.vercel.app', 'http://localhost:3001'];
   const origin = req.headers.origin;
 
   if (allowedOrigins.includes(origin)) {
