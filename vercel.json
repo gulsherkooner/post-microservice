@@ -15,6 +15,10 @@
       "src": "/posts/:post_id",
       "dest": "index.js"
     },
+    {
+      "src": "/posts/user/:user_id",
+      "dest": "index.js"
+    },
 
 
 
@@ -24,6 +28,10 @@
     },
     {
       "src": "/posts/:post_id/(.*)",
+      "dest": "index.js"
+    },
+    {
+      "src": "/posts/user/:user_id/(.*)",
       "dest": "index.js"
     },
     {
@@ -39,20 +47,6 @@
       }
     }
   ],
-  "functions": {
-    "api/*": {
-      "maxDuration": 899,
-      "memory": 1024
-    },
-    "/*": {
-      "maxDuration": 899,
-      "memory": 1024
-    },
-    "/posts/*": {
-      "maxDuration": 899,
-      "memory": 1024
-    }
-  },
   "env": {
     "NODE_ENV": "production"
   }
