@@ -319,6 +319,9 @@ router.get("/", async (req, res) => {
             `${process.env.API_GATEWAY_URL}/auth/user/${post.user_id}`
           );
           const userData = await userResponse.json();
+          if (!userResponse.ok) {
+            throw new Error(userData.error || "Failed to fetch user data");
+          }
           return {
             ...post.toObject(),
             user:
