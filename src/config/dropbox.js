@@ -18,8 +18,8 @@ module.exports = UploadToDropbox = async (fileContent,fileName, dbxAccessToken,r
     });
     const directUrl = shareResponse.result.url
       .replace("www.dropbox.com", "dl.dropboxusercontent.com")
-      .replace("?dl=0", "?raw=1")
-      .replace("&dl=0", "&raw=1");
+      .replace("?dl=0", "")
+      .replace("&dl=0", "");
     logger.info(`Uploaded to Dropbox: ${directUrl}`);
     return directUrl;
   } catch (error) {

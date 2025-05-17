@@ -11,8 +11,8 @@ const UploadToDropbox = require("../config/dropbox.js");
 const router = express.Router();
 
 // Middleware to increase payload size limit
-router.use(express.json({ limit: "50mb" }));
-router.use(express.urlencoded({ limit: "50mb", extended: true }));
+router.use(express.json({ limit: "100mb" }));
+router.use(express.urlencoded({ limit: "1000mb", extended: true }));
 
 // Create a new post
 router.post("/", async (req, res) => {
