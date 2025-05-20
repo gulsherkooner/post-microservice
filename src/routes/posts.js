@@ -107,8 +107,6 @@ router.post("/", async (req, res) => {
       media_array.push(...uploadedUrls.filter((url) => url !== null));
     }
 
-    console.log("media_array:", media_array);
-
     // Create a new post
     const post = new Post({
       post_id: postId,

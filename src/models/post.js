@@ -5,7 +5,7 @@ const postSchema = new mongoose.Schema({
   user_id: { type: String, required: true },
   title: { type: String, required: true },
   description: { type: String },
-  url: [{ type: String, required: true }],
+  url: [{ type: String }],
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now },
   post_type: { type: String, required: true, enum: ['text', 'image', 'carousel', 'video'], required: true },
@@ -15,6 +15,7 @@ const postSchema = new mongoose.Schema({
   visibility: { type: String, default: 'public', enum: ['public', 'private', 'followers'] },
   likes_count: { type: Number, default: 0 },
   comments_count: { type: Number, default: 0 },
+  views_count: { type: Number, default: 0 },
   is_active: { type: Boolean, default: true }, 
 });
 
