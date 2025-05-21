@@ -306,6 +306,31 @@ router.delete("/:post_id", async (req, res) => {
   }
 });
 
+router.get("/user/:user_id", async (req, res) => {
+  const authenticatedUserId = req.headers["x-user-id"];
+  const { user_id } = req.params;
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (authenticatedUserId !== user_id) {
+    return res
+      .status(403)
+      .json({ error: "Forbidden: You can only access your own posts" });
+  }
+
+  try {
+    const posts = await Post.find({ user_id, is_active: true });
+    res.json({ posts });
+  } catch (error) {
+    logger.error(
+      `Error retrieving posts for user ${user_id}: ${error.message}`
+    );
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Retrieve all public posts
 router.get("/", async (req, res) => {
   try {
@@ -346,22 +371,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.get("/user/:user_id", async (req, res) => {
-  const authenticatedUserId = req.headers["x-user-id"];
+router.get("/user/public/:user_id", async (req, res) => {
   const { user_id } = req.params;
 
-  if (!authenticatedUserId) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  if (authenticatedUserId !== user_id) {
-    return res
-      .status(403)
-      .json({ error: "Forbidden: You can only access your own posts" });
-  }
-
   try {
-    const posts = await Post.find({ user_id, is_active: true });
+    const posts = await Post.find({ user_id, is_active: true, visibility: "public" });
     res.json({ posts });
   } catch (error) {
     logger.error(
@@ -370,5 +384,7 @@ router.get("/user/:user_id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+
 
 module.exports = router;
