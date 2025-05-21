@@ -23,6 +23,10 @@
       "src": "/posts/user/:user_id",
       "dest": "index.js"
     },
+    {
+      "src": "/posts/user/public/:user_id",
+      "dest": "index.js"
+    },
 
 
 
@@ -40,6 +44,10 @@
     },
     {
       "src": "/posts/user/:user_id/(.*)",
+      "dest": "index.js"
+    },
+    {
+      "src": "/posts/user/public/:user_id/(.*)",
       "dest": "index.js"
     },
     {
