@@ -1,5 +1,5 @@
 const { Dropbox } = require("dropbox");
-const logger = require('../config/logger');
+const logger = require('./logger');
 
 module.exports = UploadToDropbox = async (fileContent,fileName, dbxAccessToken,res) => {
   const dbx = new Dropbox({

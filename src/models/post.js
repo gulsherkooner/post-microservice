@@ -1,22 +1,90 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require("sequelize");
+const sequelize = require("../config/db");
 
-const postSchema = new mongoose.Schema({
-  post_id: { type: String, required: true, unique: true },
-  user_id: { type: String, required: true },
-  title: { type: String, required: true },
-  description: { type: String },
-  url: [{ type: String }],
-  created_at: { type: Date, default: Date.now },
-  updated_at: { type: Date, default: Date.now },
-  post_type: { type: String, required: true, enum: ['text', 'image', 'carousel', 'video'], required: true },
-  is_reel: { type: Boolean, default: false },
-  category: { type: String },
-  post_tags: [{ type: String }],
-  visibility: { type: String, default: 'public', enum: ['public', 'private', 'followers'] },
-  likes_count: { type: Number, default: 0 },
-  comments_count: { type: Number, default: 0 },
-  views_count: { type: Number, default: 0 },
-  is_active: { type: Boolean, default: true }, 
-});
+const Post = sequelize.define(
+  "Post",
+  {
+    post_id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
+    user_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+    },
+    title: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    url: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: [],
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    post_type: {
+      type: DataTypes.ENUM("text", "image", "carousel", "video"),
+      allowNull: false,
+    },
+    is_reel: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    category: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
+    post_tags: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: [],
+    },
+    visibility: {
+      type: DataTypes.ENUM("public", "private", "followers"),
+      defaultValue: "public",
+    },
+    likes_count: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      validate: {
+        min: 0,
+      },
+    },
+    comments_count: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      validate: {
+        min: 0,
+      },
+    },
+    views_count: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      validate: {
+        min: 0,
+      },
+    },
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+  },
+  {
+    tableName: "posts",
+    timestamps: false,
+  }
+);
 
-module.exports = mongoose.model('Post', postSchema);
+module.exports = Post;

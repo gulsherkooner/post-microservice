@@ -1,5 +1,4 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const { v4: uuidv4 } = require("uuid");
 const Post = require("../models/post");
 const PostMedia = require("../models/postMedia");
@@ -58,8 +57,7 @@ router.post("/", async (req, res) => {
       !media[0].media_content)
   ) {
     return res.status(400).json({
-      error:
-        "Video posts should have exactly one video media with media_content",
+      error: "Video posts should have exactly one video media with media_content",
     });
   }
 
@@ -76,13 +74,32 @@ router.post("/", async (req, res) => {
     const postId = uuidv4();
     const media_array = [];
 
+    // Create the post first
+    const post = await Post.create({
+      post_id: postId,
+      user_id: userId,
+      title,
+      description,
+      url: [], // Will update with media_array later if media exists
+      post_type,
+      category,
+      post_tags,
+      visibility: visibility || 'public',
+      is_reel:
+        post_type === "video" &&
+        media.length === 1 &&
+        (media[0].height > media[0].width || false),
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    // Create media entries
     if (media.length > 0) {
-      const mediaPromises = media.map(async (m, i) => {
-        let media_url = null;
+      const mediaPromises = media.map(async (m) => {
         if (m.media_type === "video" || m.media_type === "image") {
           const fileName = m.media_name;
           const fileContent = m.media_content;
-          media_url = await UploadToDropbox(
+          const media_url = await UploadToDropbox(
             fileContent,
             fileName,
             dbxAccessToken,
@@ -91,13 +108,17 @@ router.post("/", async (req, res) => {
           if (!media_url) {
             throw new Error(`Failed to upload media ${fileName} to Dropbox`);
           }
-          const mediaDoc = new PostMedia({
+          // Create PostMedia record
+          await PostMedia.create({
+            id: uuidv4(),
             post_id: postId,
             media_type: m.media_type,
             url: media_url,
+            thumbnail_url: m.thumbnail_url || null,
+            duration: m.duration || null,
+            width: m.width || null,
+            height: m.height || null,
           });
-          await mediaDoc.save();
-          logger.info(`Saved media document: ${mediaDoc}`);
           return media_url;
         }
         return null;
@@ -105,28 +126,14 @@ router.post("/", async (req, res) => {
 
       const uploadedUrls = await Promise.all(mediaPromises);
       media_array.push(...uploadedUrls.filter((url) => url !== null));
+
+      // Update post with media URLs
+      if (media_array.length > 0) {
+        await post.update({ url: media_array });
+      }
     }
 
-    // Create a new post
-    const post = new Post({
-      post_id: postId,
-      user_id: userId,
-      title,
-      url: media_array,
-      description,
-      post_type,
-      category,
-      post_tags,
-      visibility: visibility || "public",
-      is_reel:
-        post_type === "video" &&
-        media.length === 1 &&
-        (media[0].height > media[0].width || false),
-    });
-
-    const savedPost = await post.save();
-
-    res.status(201).json({ post: savedPost });
+    res.status(201).json({ post });
   } catch (error) {
     logger.error(`Error creating post: ${error.message}`);
     res.status(500).json({ error: error.message });
@@ -134,12 +141,12 @@ router.post("/", async (req, res) => {
 });
 
 // Retrieve a post
-router.get("/:post_id", async (req, res) => {
+router.get("/post/:post_id", async (req, res) => {
   const userId = req.headers["x-user-id"] || null;
   const { post_id } = req.params;
 
   try {
-    const post = await Post.findOne({ post_id, is_active: true });
+    const post = await Post.findOne({ where: { post_id, is_active: true } });
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
@@ -168,7 +175,7 @@ router.put("/:post_id", async (req, res) => {
     req.body;
 
   try {
-    const post = await Post.findOne({ post_id, is_active: true });
+    const post = await Post.findOne({ where: { post_id, is_active: true } });
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
@@ -176,22 +183,20 @@ router.put("/:post_id", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    // Update post fields
-    post.title = title !== undefined ? title : post.title;
-    post.description =
-      description !== undefined ? description : post.description;
-    post.category = category !== undefined ? category : post.category;
-    post.post_tags = post_tags !== undefined ? post_tags : post.post_tags;
-    post.visibility = visibility !== undefined ? visibility : post.visibility;
-    post.updated_at = Date.now();
+    // Prepare update data
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (category !== undefined) updateData.category = category;
+    if (post_tags !== undefined) updateData.post_tags = post_tags;
+    if (visibility !== undefined) updateData.visibility = visibility;
+    updateData.updated_at = new Date();
 
-    // If media is provided, replace existing media
+    // If media is provided, update media URLs
     if (media !== undefined) {
       // Validate media based on post_type
       if (post.post_type === "text" && media.length > 0) {
-        return res
-          .status(400)
-          .json({ error: "Text posts should not have media" });
+        return res.status(400).json({ error: "Text posts should not have media" });
       }
       if (
         post.post_type === "image" &&
@@ -201,12 +206,10 @@ router.put("/:post_id", async (req, res) => {
           .status(400)
           .json({ error: "Image posts should have exactly one image media" });
       }
-      if (
-        post.post_type === "carousel" &&
-        (media.length < 2 || media.some((m) => m.media_type !== "image"))
+      if (post.post_type === "carousel" && (media.length < 2 || media.some((m) => m.media_type !== "image"))
       ) {
         return res.status(400).json({
-          error: "Carousel posts should have at least two image media",
+          error: "Carousel posts should have at least two image media"
         });
       }
       if (
@@ -231,11 +234,9 @@ router.put("/:post_id", async (req, res) => {
       }
 
       const media_array = [];
-      await PostMedia.deleteMany({ post_id });
-
       if (media.length > 0) {
-        const mediaPromises = media.map(async (m, i) => {
-          let media_url = null;
+        const mediaPromises = media.map(async (m) => {
+          let media_url = '';
           if (m.media_type === "video" || m.media_type === "image") {
             const fileName = m.media_name;
             const fileContent = m.media_content;
@@ -248,14 +249,6 @@ router.put("/:post_id", async (req, res) => {
             if (!media_url) {
               throw new Error(`Failed to upload media ${fileName} to Dropbox`);
             }
-            const mediaDoc = new PostMedia({
-              post_id,
-              media_type: m.media_type,
-              url: media_url,
-              order: i,
-            });
-            await mediaDoc.save();
-            logger.info(`Saved updated media document: ${mediaDoc}`);
             return media_url;
           }
           return null;
@@ -265,14 +258,15 @@ router.put("/:post_id", async (req, res) => {
         media_array.push(...uploadedUrls.filter((url) => url !== null));
       }
 
-      post.url = media_array;
+      updateData.url = media_array;
       if (post.post_type === "video" && media.length === 1) {
-        post.is_reel = media[0].height > media[0].width || false;
+        updateData.is_reel = media[0].height > media[0].width || false;
       }
     }
 
-    const updatedPost = await post.save();
-    res.json({ post: updatedPost });
+    // Update post
+    await post.update(updateData);
+    res.json({ post });
   } catch (error) {
     logger.error(`Error updating post: ${error.message}`);
     res.status(500).json({ error: error.message });
@@ -289,7 +283,7 @@ router.delete("/:post_id", async (req, res) => {
   const { post_id } = req.params;
 
   try {
-    const post = await Post.findOne({ post_id, is_active: true });
+    const post = await Post.findOne({ where: { post_id, is_active: true } });
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
@@ -297,8 +291,7 @@ router.delete("/:post_id", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    post.is_active = false;
-    await post.save();
+    await post.update({ is_active: false });
     res.status(204).send();
   } catch (error) {
     logger.error(`Error deleting post: ${error.message}`);
@@ -306,6 +299,7 @@ router.delete("/:post_id", async (req, res) => {
   }
 });
 
+// Retrieve user's posts
 router.get("/user/:user_id", async (req, res) => {
   const authenticatedUserId = req.headers["x-user-id"];
   const { user_id } = req.params;
@@ -321,7 +315,7 @@ router.get("/user/:user_id", async (req, res) => {
   }
 
   try {
-    const posts = await Post.find({ user_id, is_active: true });
+    const posts = await Post.findAll({ where: { user_id, is_active: true } });
     res.json({ posts });
   } catch (error) {
     logger.error(
@@ -334,7 +328,7 @@ router.get("/user/:user_id", async (req, res) => {
 // Retrieve all public posts
 router.get("/", async (req, res) => {
   try {
-    const posts = await Post.find({ is_active: true, visibility: "public" });
+    const posts = await Post.findAll({ where: { is_active: true, visibility: "public" } });
     const postsWithUsernames = await Promise.all(
       posts.map(async (post) => {
         try {
@@ -346,7 +340,7 @@ router.get("/", async (req, res) => {
             throw new Error(userData.error || "Failed to fetch user data");
           }
           return {
-            ...post.toObject(),
+            ...post.toJSON(),
             user:
               {
                 username: userData.user.username,
@@ -358,7 +352,7 @@ router.get("/", async (req, res) => {
             `Error retrieving user data for post ${post.post_id}: ${error.message}`
           );
           return {
-            ...post.toObject(),
+            ...post.toJSON(),
             user: null,
           };
         }
@@ -371,11 +365,14 @@ router.get("/", async (req, res) => {
   }
 });
 
+// Retrieve user's public posts
 router.get("/user/public/:user_id", async (req, res) => {
   const { user_id } = req.params;
 
   try {
-    const posts = await Post.find({ user_id, is_active: true, visibility: "public" });
+    const posts = await Post.findAll({
+      where: { user_id, is_active: true, visibility: "public" },
+    });
     res.json({ posts });
   } catch (error) {
     logger.error(
@@ -384,7 +381,5 @@ router.get("/user/public/:user_id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-
 
 module.exports = router;
