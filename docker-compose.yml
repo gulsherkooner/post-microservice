@@ -1,0 +1,19 @@
+services:
+  post-service:
+    image: post-service:${TAG:-latest}
+    build:
+      context: /root/cent-stage/post-service
+      dockerfile: Dockerfile
+      cache_from:
+        - post-service:cache
+    env_file:
+      - /root/cent-stage/post-service/.env
+    ports:
+      - "3004:3004"
+    networks:
+      - cent-stage-network
+    restart: unless-stopped
+
+networks:
+  cent-stage-network:
+    external: true
