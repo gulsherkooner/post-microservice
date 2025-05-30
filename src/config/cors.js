@@ -1,7 +1,7 @@
 const cors = require('cors');
 
 const corsOptions = {
-  origin: ['https://api-gateway-eta-navy.vercel.app', 'http://135.181.192.55:3001', 'https://next-frontend-one-xi.vercel.app'],
+  origin: ['http://api-gateway:3001'],
   credentials: true, // Allow cookies (e.g., refreshToken)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['X-Requested-With, Content-Type, Authorization'],
