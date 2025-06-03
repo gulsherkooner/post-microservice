@@ -28,6 +28,7 @@ router.post("/", async (req, res) => {
     category,
     post_tags,
     visibility,
+    is_reel
   } = req.body;
 
   // Validate media based on post_type
@@ -85,10 +86,7 @@ router.post("/", async (req, res) => {
       category,
       post_tags,
       visibility: visibility || 'public',
-      is_reel:
-        post_type === "video" &&
-        media.length === 1 &&
-        (media[0].height > media[0].width || false),
+      is_reel,
       created_at: new Date(),
       updated_at: new Date(),
     });
