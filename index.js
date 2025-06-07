@@ -6,6 +6,7 @@ const logger = require("./src/config/logger");
 const postsRoutes = require("./src/routes/posts");
 const bodyParser = require("body-parser");
 const sequelize = require("./src/config/db");
+const commentsRoutes = require("./src/routes/comments");
 
 
 const app = express();
@@ -36,6 +37,7 @@ sequelize
   });
 
 app.use("/posts", postsRoutes);
+app.use("/comments", commentsRoutes);
 
 app.listen(PORT, () => {
   logger.info(`Post service running on port ${PORT}`);

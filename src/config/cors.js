@@ -1,7 +1,7 @@
 const cors = require('cors');
 
 const corsOptions = {
-  origin: ['http://api-gateway:3001'],
+  origin: ['http://api-gateway:3001', "http://localhost:3001"],
   credentials: true, // Allow cookies (e.g., refreshToken)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['X-Requested-With, Content-Type, Authorization'],

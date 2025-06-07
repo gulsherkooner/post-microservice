@@ -1,7 +1,9 @@
 require("dotenv").config();
 const sequelize = require("../config/db");
-const Post = require("../models/post");
-const PostMedia = require("../models/postMedia");
+// const Post = require("../models/post");
+// const PostMedia = require("../models/postMedia");
+const Comment = require("../models/comment");
+const CommentLike = require("../models/commentLike");
 
 async function initDb() {
   try {
