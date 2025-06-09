@@ -7,6 +7,7 @@ const postsRoutes = require("./src/routes/posts");
 const bodyParser = require("body-parser");
 const sequelize = require("./src/config/db");
 const commentsRoutes = require("./src/routes/comments");
+const postsLikesRoutes = require("./src/routes/postLikes"); // Import postLikes routes
 
 
 const app = express();
@@ -38,6 +39,7 @@ sequelize
 
 app.use("/posts", postsRoutes);
 app.use("/comments", commentsRoutes);
+app.use("/postLikes", postsLikesRoutes); // Use postLikes routes
 
 app.listen(PORT, () => {
   logger.info(`Post service running on port ${PORT}`);
