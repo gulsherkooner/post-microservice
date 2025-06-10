@@ -112,7 +112,7 @@ router.get("/:post_id/like", async (req, res) => {
       attributes: ["id", "post_id", "user_id", "created_at"],
     });
     if (!like) {
-      return res.status(200).json({ liked: false });
+      return res.status(404).json({ liked: false });
     }
     res.json({ liked: true, like });
   } catch (error) {
