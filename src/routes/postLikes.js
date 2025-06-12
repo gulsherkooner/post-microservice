@@ -121,4 +121,19 @@ router.get("/:post_id/like", async (req, res) => {
   }
 });
 
+// Get all likes for a specific post (no user id required)
+router.get("/:post_id/all", async (req, res) => {
+  const { post_id } = req.params;
+  try {
+    const likes = await PostLike.findAll({
+      where: { post_id },
+      attributes: ["user_id", "created_at"],
+    });
+    res.json({ likes });
+  } catch (error) {
+    logger.error(`Error retrieving likes for post ${post_id}: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
