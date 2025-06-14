@@ -6,6 +6,7 @@ const logger = require("../config/logger");
 const { Dropbox } = require("dropbox");
 const getDbxToken = require("../utils/getDbxToken.js");
 const UploadToDropbox = require("../config/dropbox.js");
+const sequelize = require("../config/db.js");
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.post("/", async (req, res) => {
     category,
     post_tags,
     visibility,
-    is_reel
+    is_reel,
   } = req.body;
 
   // Validate media based on post_type
@@ -58,7 +59,8 @@ router.post("/", async (req, res) => {
       !media[0].media_content)
   ) {
     return res.status(400).json({
-      error: "Video posts should have exactly one video media with media_content",
+      error:
+        "Video posts should have exactly one video media with media_content",
     });
   }
 
@@ -85,7 +87,7 @@ router.post("/", async (req, res) => {
       post_type,
       category,
       post_tags,
-      visibility: visibility || 'public',
+      visibility: visibility || "public",
       is_reel,
       created_at: new Date(),
       updated_at: new Date(),
@@ -194,7 +196,9 @@ router.put("/:post_id", async (req, res) => {
     if (media !== undefined) {
       // Validate media based on post_type
       if (post.post_type === "text" && media.length > 0) {
-        return res.status(400).json({ error: "Text posts should not have media" });
+        return res
+          .status(400)
+          .json({ error: "Text posts should not have media" });
       }
       if (
         post.post_type === "image" &&
@@ -204,10 +208,12 @@ router.put("/:post_id", async (req, res) => {
           .status(400)
           .json({ error: "Image posts should have exactly one image media" });
       }
-      if (post.post_type === "carousel" && (media.length < 2 || media.some((m) => m.media_type !== "image"))
+      if (
+        post.post_type === "carousel" &&
+        (media.length < 2 || media.some((m) => m.media_type !== "image"))
       ) {
         return res.status(400).json({
-          error: "Carousel posts should have at least two image media"
+          error: "Carousel posts should have at least two image media",
         });
       }
       if (
@@ -234,7 +240,7 @@ router.put("/:post_id", async (req, res) => {
       const media_array = [];
       if (media.length > 0) {
         const mediaPromises = media.map(async (m) => {
-          let media_url = '';
+          let media_url = "";
           if (m.media_type === "video" || m.media_type === "image") {
             const fileName = m.media_name;
             const fileContent = m.media_content;
@@ -323,27 +329,44 @@ router.get("/user/:user_id", async (req, res) => {
   }
 });
 
-// Retrieve all public posts
+// Retrieve all public posts with random order and pagination
 router.get("/", async (req, res) => {
   try {
-    const posts = await Post.findAll({ where: { is_active: true, visibility: "public" } });
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const offset = (page - 1) * limit;
+    const seed = req.query.seed || "defaultseed";
+
+    const total = await Post.count({
+      where: { is_active: true, visibility: "public" },
+    });
+
+    // Deterministic random order using seed
+    const posts = await Post.findAll({
+      where: { is_active: true, visibility: "public" },
+      order: [[sequelize.literal(`md5('${seed}' || post_id)`), 'ASC']],
+      limit,
+      offset,
+    });
+
+    const apiGatewayUrl = process.env.API_GATEWAY_URL || "http://localhost:3001";
+
     const postsWithUsernames = await Promise.all(
       posts.map(async (post) => {
         try {
           const userResponse = await fetch(
-            `${process.env.API_GATEWAY_URL}/auth/user/${post.user_id}`
+            `${apiGatewayUrl}/auth/user/${post.user_id}`
           );
           const userData = await userResponse.json();
-          if (!userResponse.ok) {
+          if (!userResponse.ok || !userData.user) {
             throw new Error(userData.error || "Failed to fetch user data");
           }
           return {
             ...post.toJSON(),
-            user:
-              {
-                username: userData.user.username,
-                profile_img_url: userData.user.profile_img_url,
-              } || null,
+            user: {
+              username: userData.user.username,
+              profile_img_url: userData.user.profile_img_url,
+            },
           };
         } catch (error) {
           logger.error(
@@ -356,7 +379,16 @@ router.get("/", async (req, res) => {
         }
       })
     );
-    res.json({ posts: postsWithUsernames });
+
+    logger.info(`Returning ${postsWithUsernames.length} posts`);
+
+    res.json({
+      posts: postsWithUsernames,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
     logger.error(`Error retrieving posts: ${error.message}`);
     res.status(500).json({ error: error.message });
@@ -379,5 +411,92 @@ router.get("/user/public/:user_id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Public route: Get reels with pagination, seed, and optional id prioritization
+router.get("/reels", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const offset = (page - 1) * limit;
+    const seed = req.query.seed || "defaultseed";
+    const reelId = req.query.id;
+
+    // Count total reels
+    const total = await Post.count({
+      where: { is_active: true, visibility: "public", is_reel: true },
+    });
+
+    // If an id is provided, fetch that reel first
+    let prioritizedReel = [];
+    if (reelId) {
+      const reel = await Post.findOne({
+        where: { post_id: reelId, is_active: true, visibility: "public", is_reel: true },
+      });
+      if (reel) prioritizedReel = [reel];
+    }
+
+    // Fetch other reels, excluding the prioritized one if present
+    const whereClause = {
+      is_active: true,
+      visibility: "public",
+      is_reel: true,
+      ...(reelId && { post_id: { [require("sequelize").Op.ne]: reelId } }),
+    };
+
+    const otherReels = await Post.findAll({
+      where: whereClause,
+      order: [[sequelize.literal(`md5('${seed}' || post_id)`), 'ASC']],
+      limit: prioritizedReel.length > 0 ? limit - 1 : limit,
+      offset: prioritizedReel.length > 0 ? (offset > 0 ? offset - 1 : 0) : offset,
+    });
+
+    // Combine prioritized reel and others
+    const reels = prioritizedReel.concat(otherReels);
+
+    const apiGatewayUrl = process.env.API_GATEWAY_URL || "http://localhost:3001";
+
+    const reelsWithUser = await Promise.all(
+      reels.map(async (post) => {
+        try {
+          const userResponse = await fetch(
+            `${apiGatewayUrl}/auth/user/${post.user_id}`
+          );
+          const userData = await userResponse.json();
+          if (!userResponse.ok || !userData.user) {
+            throw new Error(userData.error || "Failed to fetch user data");
+          }
+          return {
+            ...post.toJSON(),
+            user: {
+              username: userData.user.username,
+              profile_img_url: userData.user.profile_img_url,
+            },
+          };
+        } catch (error) {
+          logger.error(
+            `Error retrieving user data for reel ${post.post_id}: ${error.message}`
+          );
+          return {
+            ...post.toJSON(),
+            user: null,
+          };
+        }
+      })
+    );
+
+    res.json({
+      reels: reelsWithUser,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    logger.error(`Error retrieving reels: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 
 module.exports = router;
