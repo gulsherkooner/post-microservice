@@ -7,7 +7,9 @@ const postsRoutes = require("./src/routes/posts");
 const bodyParser = require("body-parser");
 const sequelize = require("./src/config/db");
 const commentsRoutes = require("./src/routes/comments");
-const postsLikesRoutes = require("./src/routes/postLikes"); // Import postLikes routes
+const postsLikesRoutes = require("./src/routes/postLikes");
+const storiesRoutes = require("./src/routes/stories");
+const { scheduleStoryDeactivation } = require('./src/jobs/storyJobs');
 
 
 const app = express();
@@ -40,6 +42,10 @@ sequelize
 app.use("/posts", postsRoutes);
 app.use("/comments", commentsRoutes);
 app.use("/postLikes", postsLikesRoutes); // Use postLikes routes
+app.use("/stories", storiesRoutes);
+
+// Initialize cron jobs
+scheduleStoryDeactivation();
 
 app.listen(PORT, () => {
   logger.info(`Post service running on port ${PORT}`);
