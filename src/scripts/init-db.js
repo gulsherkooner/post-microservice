@@ -6,7 +6,8 @@ const sequelize = require("../config/db");
 // const Comment = require("../models/comment");
 // const CommentLike = require("../models/commentLike");
 // const postLike = require("../models/postLike");
-const story = require("../models/story");
+// const story = require("../models/story");
+const view = require("../models/view");
 
 async function initDb() {
   try {

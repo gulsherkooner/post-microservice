@@ -9,6 +9,7 @@ const sequelize = require("./src/config/db");
 const commentsRoutes = require("./src/routes/comments");
 const postsLikesRoutes = require("./src/routes/postLikes");
 const storiesRoutes = require("./src/routes/stories");
+const viewsRoutes = require("./src/routes/views");
 const { scheduleStoryDeactivation } = require('./src/jobs/storyJobs');
 
 
@@ -43,6 +44,7 @@ app.use("/posts", postsRoutes);
 app.use("/comments", commentsRoutes);
 app.use("/postLikes", postsLikesRoutes); // Use postLikes routes
 app.use("/stories", storiesRoutes);
+app.use("/views", viewsRoutes);
 
 // Initialize cron jobs
 scheduleStoryDeactivation();
