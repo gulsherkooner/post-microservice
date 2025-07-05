@@ -7,7 +7,7 @@ const { Dropbox } = require("dropbox");
 const getDbxToken = require("../utils/getDbxToken.js");
 const UploadToDropbox = require("../config/dropbox.js");
 const sequelize = require("../config/db.js");
-const { Op } = require("sequelize"); // Add this line
+const { Op } = require("sequelize");
 
 const router = express.Router();
 
@@ -98,55 +98,120 @@ router.get("/search", async (req, res) => {
       }
     }
 
+    // Debug: Log the where clause to see what's being queried
+    console.log("Search query params:", {
+      searchString,
+      post_type,
+      userId,
+      isSearchOperation,
+      followingCount: followingUserIds.length,
+      baseWhereClause: JSON.stringify(baseWhereClause, null, 2)
+    });
+
     // Count total matching posts
     const total = await Post.count({ where: baseWhereClause });
+    
+    console.log(`Total posts matching criteria: ${total}`);
+
+    // Calculate limits for followed users (20%) and public posts (80%)
+    const followedUsersLimit = Math.ceil(limitNum * 0.2); // 20% for followed users
+    const publicPostsLimit = limitNum - followedUsersLimit; // 80% for public posts
 
     let allPosts = [];
 
-    // First, get posts from followed users
-    if (followingUserIds.length > 0) {
+    // Get posts from followed users (20% of the limit)
+    if (followingUserIds.length > 0 && followedUsersLimit > 0) {
       const followedUsersWhereClause = {
         ...baseWhereClause,
         user_id: { [Op.in]: followingUserIds },
       };
 
+      console.log(`Getting ${followedUsersLimit} posts from followed users`);
+
       const followedUsersPosts = await Post.findAll({
         where: followedUsersWhereClause,
-        order: [[sequelize.literal(`md5('${seed}' || post_id)`), "ASC"]],
-        limit: limitNum,
-        offset: offset,
+        order: [[sequelize.literal(`md5('${seed}' || post_id::text)`), "ASC"]],
+        limit: followedUsersLimit,
+        offset: Math.floor(offset * 0.2), // Proportional offset for followed users
       });
 
       allPosts = followedUsersPosts;
+      console.log(`Found ${followedUsersPosts.length} posts from followed users`);
     }
 
-    // If we need more posts, get from other users
-    const remainingLimit = limitNum - allPosts.length;
-    if (remainingLimit > 0) {
-      const otherUsersWhereClause = {
+    // Get public posts from non-followed users (80% of the limit)
+    if (publicPostsLimit > 0) {
+      const publicPostsWhereClause = {
         ...baseWhereClause,
         user_id: {
           [Op.notIn]:
             followingUserIds.length > 0
-              ? [...followingUserIds, userId]
-              : [userId],
+              ? [...followingUserIds, userId] // Exclude followed users and self
+              : [userId], // Only exclude self if no following list
         },
       };
 
-      const otherUsersPosts = await Post.findAll({
-        where: otherUsersWhereClause,
-        order: [[sequelize.literal(`md5('${seed}' || post_id)`), "ASC"]],
-        limit: remainingLimit,
-        offset:
-          allPosts.length > 0 ? Math.max(0, offset - allPosts.length) : offset,
+      console.log(`Getting ${publicPostsLimit} posts from public users`);
+
+      const publicPosts = await Post.findAll({
+        where: publicPostsWhereClause,
+        order: [[sequelize.literal(`md5('${seed}' || post_id::text)`), "ASC"]],
+        limit: publicPostsLimit,
+        offset: Math.floor(offset * 0.8), // Proportional offset for public posts
       });
 
-      allPosts = allPosts.concat(otherUsersPosts);
+      allPosts = allPosts.concat(publicPosts);
+      console.log(`Found ${publicPosts.length} posts from public users`);
     }
+
+    // If we still don't have enough posts, fill with any remaining public posts
+    const remainingLimit = limitNum - allPosts.length;
+    if (remainingLimit > 0) {
+      console.log(`Need ${remainingLimit} more posts, getting any public posts`);
+      
+      const anyPublicWhereClause = {
+        ...baseWhereClause,
+        user_id: { [Op.ne]: userId }, // Exclude only self
+      };
+
+      const anyPublicPosts = await Post.findAll({
+        where: anyPublicWhereClause,
+        order: [[sequelize.literal(`md5('${seed}' || post_id::text)`), "ASC"]],
+        limit: remainingLimit,
+        offset: offset + allPosts.length,
+      });
+
+      allPosts = allPosts.concat(anyPublicPosts);
+      console.log(`Found ${anyPublicPosts.length} additional public posts`);
+    }
+
+    // Shuffle the combined results to mix followed and public posts
+    const shuffleArray = (array, seedString) => {
+      const arr = [...array];
+      // Create a simple hash from seed for consistent shuffling
+      let hash = 0;
+      for (let i = 0; i < seedString.length; i++) {
+        const char = seedString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      
+      // Use the hash to create a pseudo-random shuffle
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.abs(hash + i) % (i + 1);
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    };
+
+    // Shuffle posts while maintaining the seed for consistency
+    const shuffledPosts = shuffleArray(allPosts, seed + pageNum.toString());
+
+    console.log(`Final result: ${shuffledPosts.length} posts after shuffling`);
 
     // Fetch user data for all posts
     const postsWithUserData = await Promise.all(
-      allPosts.map(async (post) => {
+      shuffledPosts.map(async (post) => {
         try {
           const userResponse = await fetch(
             `${apiGatewayUrl}/auth/user/${post.user_id}`
@@ -176,9 +241,13 @@ router.get("/search", async (req, res) => {
       })
     );
 
+    // Calculate statistics for the response
+    const followedPostsCount = postsWithUserData.filter(post => post.is_from_followed_user).length;
+    const publicPostsCount = postsWithUserData.length - followedPostsCount;
+
     const responseMessage = isSearchOperation
-      ? `Search "${searchString}" returned ${postsWithUserData.length} posts`
-      : `Retrieved ${postsWithUserData.length} public posts`;
+      ? `Search "${searchString}" returned ${postsWithUserData.length} posts (${followedPostsCount} from followed users, ${publicPostsCount} public)`
+      : `Retrieved ${postsWithUserData.length} posts (${followedPostsCount} from followed users, ${publicPostsCount} public)`;
 
     logger.info(responseMessage);
 
@@ -191,10 +260,57 @@ router.get("/search", async (req, res) => {
       total,
       totalPages: Math.ceil(total / limitNum),
       followed_users_count: followingUserIds.length,
+      followed_posts_count: followedPostsCount,
+      public_posts_count: publicPostsCount,
+      content_ratio: {
+        followed_percentage: postsWithUserData.length > 0 ? Math.round((followedPostsCount / postsWithUserData.length) * 100) : 0,
+        public_percentage: postsWithUserData.length > 0 ? Math.round((publicPostsCount / postsWithUserData.length) * 100) : 0,
+      },
       is_search: isSearchOperation,
+      debug_info: {
+        where_clause: baseWhereClause,
+        user_id: userId,
+        is_search_operation: isSearchOperation,
+        following_user_ids: followingUserIds,
+      }
     });
   } catch (error) {
     logger.error(`Error searching posts: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add a debug route to check database contents
+router.get("/debug", async (req, res) => {
+  const userId = req.headers["x-user-id"];
+
+  try {
+    const allPosts = await Post.count();
+    const activePosts = await Post.count({ where: { is_active: true } });
+    const publicPosts = await Post.count({ where: { is_active: true, visibility: "public" } });
+    const otherUsersPublicPosts = await Post.count({ 
+      where: { 
+        is_active: true, 
+        visibility: "public",
+        user_id: { [Op.ne]: userId }
+      } 
+    });
+
+    // Get sample posts
+    const samplePosts = await Post.findAll({
+      limit: 5,
+      attributes: ['post_id', 'user_id', 'is_active', 'visibility', 'post_type', 'title']
+    });
+
+    res.json({
+      total_posts: allPosts,
+      active_posts: activePosts,
+      public_posts: publicPosts,
+      other_users_public_posts: otherUsersPublicPosts,
+      current_user_id: userId,
+      sample_posts: samplePosts
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
