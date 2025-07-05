@@ -4,6 +4,7 @@ dotenv.config();
 const cors = require("./src/config/cors");
 const logger = require("./src/config/logger");
 const postsRoutes = require("./src/routes/posts");
+const searchRoutes = require("./src/routes/search");
 const bodyParser = require("body-parser");
 const sequelize = require("./src/config/db");
 const commentsRoutes = require("./src/routes/comments");
@@ -41,6 +42,7 @@ sequelize
   });
 
 app.use("/posts", postsRoutes);
+app.use("/search", searchRoutes);
 app.use("/comments", commentsRoutes);
 app.use("/postLikes", postsLikesRoutes); // Use postLikes routes
 app.use("/stories", storiesRoutes);
