@@ -11,6 +11,124 @@ const { Op } = require("sequelize");
 
 const router = express.Router();
 
+// New route for search suggestions
+router.get("/suggestions", async (req, res) => {
+  const userId = req.headers["x-user-id"];
+
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const {
+      q: searchString,
+      post_type,
+      limit = 5,
+    } = req.query;
+
+    // Check if query is empty
+    if (!searchString || searchString.trim() === "") {
+      return res.json({ suggestions: [] });
+    }
+
+    const limitNum = parseInt(limit, 10) || 5;
+    const apiGatewayUrl = process.env.API_GATEWAY_URL || "http://localhost:3001";
+
+    // Handle user suggestions
+    if (post_type === "users") {
+      try {
+        const searchUrl = `${apiGatewayUrl}/auth/search/users?q=${encodeURIComponent(searchString)}&page=1&limit=${limitNum}`;
+        
+        const userSearchResponse = await fetch(searchUrl);
+        
+        if (userSearchResponse.ok) {
+          const userSearchData = await userSearchResponse.json();
+          const userSuggestions = (userSearchData.users || []).map(user => ({
+            user_id: user.user_id,
+            username: user.username,
+            name: user.name,
+            profile_img_url: user.profile_img_url,
+            is_verified: user.is_verified,
+            type: 'user'
+          }));
+          
+          return res.json({ suggestions: userSuggestions });
+        } else {
+          const errorData = await userSearchResponse.json();
+        }
+      } catch (error) {
+        logger.error(`Error getting user suggestions: ${error.message}`);
+      }
+      return res.json({ suggestions: [] });
+    }
+
+    // Handle post suggestions (images, videos, reels)
+    const baseWhereClause = {
+      is_active: true,
+      visibility: "public",
+      [Op.or]: [
+        { title: { [Op.iLike]: `%${searchString}%` } },
+        { description: { [Op.iLike]: `%${searchString}%` } },
+      ],
+    };
+
+    // Add post_type filter
+    if (post_type === "reels") {
+      baseWhereClause.is_reel = true;
+      baseWhereClause.post_type = "video";
+    } else if (post_type === "videos") {
+      baseWhereClause.post_type = "video";
+      baseWhereClause.is_reel = false;
+    } else if (post_type === "posts") {
+      baseWhereClause.post_type = "image";
+    }
+
+    const posts = await Post.findAll({
+      where: baseWhereClause,
+      order: [['created_at', 'DESC']],
+      limit: limitNum,
+      attributes: ['post_id', 'title', 'description', 'post_type', 'is_reel', 'user_id']
+    });
+
+    // Get user data for posts
+    const postsWithUserData = await Promise.all(
+      posts.map(async (post) => {
+        try {
+          const userResponse = await fetch(`${apiGatewayUrl}/auth/user/${post.user_id}`);
+          const userData = await userResponse.json();
+          return {
+            post_id: post.post_id,
+            title: post.title,
+            description: post.description,
+            post_type: post.post_type,
+            is_reel: post.is_reel,
+            user: userData.user ? {
+              username: userData.user.username,
+              profile_img_url: userData.user.profile_img_url
+            } : null,
+            type: 'post'
+          };
+        } catch (error) {
+          return {
+            post_id: post.post_id,
+            title: post.title,
+            description: post.description,
+            post_type: post.post_type,
+            is_reel: post.is_reel,
+            user: null,
+            type: 'post'
+          };
+        }
+      })
+    );
+
+    res.json({ suggestions: postsWithUserData });
+  } catch (error) {
+    logger.error(`Error getting suggestions: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Search posts route
 router.get("/search", async (req, res) => {
   const userId = req.headers["x-user-id"];
@@ -33,11 +151,11 @@ router.get("/search", async (req, res) => {
       return res.status(400).json({ error: "Search query is required. Use '~' to fetch all posts." });
     }
 
-    // Validate post_type if provided
-    const validPostTypes = ["image", "video", "reel"];
+    // Validate post_type if provided - ADD "users" to valid types
+    const validPostTypes = ["image", "video", "reel", "users"];
     if (post_type && !validPostTypes.includes(post_type)) {
       return res.status(400).json({
-        error: "Invalid post_type. Must be one of: image, video, reel",
+        error: "Invalid post_type. Must be one of: image, video, reel, users",
       });
     }
 
@@ -48,6 +166,59 @@ router.get("/search", async (req, res) => {
     const apiGatewayUrl =
       process.env.API_GATEWAY_URL || "http://localhost:3001";
 
+    // Handle user search separately
+    if (post_type === "users") {
+      try {
+        const userSearchResponse = await fetch(
+          `${apiGatewayUrl}/auth/search/users?q=${encodeURIComponent(searchString)}&page=${pageNum}&limit=${limitNum}`
+        );
+        
+        if (userSearchResponse.ok) {
+          const userSearchData = await userSearchResponse.json();
+          return res.json({
+            users: userSearchData.users || [],
+            search_query: searchString,
+            post_type: "users",
+            page: pageNum,
+            limit: limitNum,
+            total: userSearchData.total || 0,
+            totalPages: userSearchData.totalPages || 0,
+            is_search: true,
+            content_type: "users"
+          });
+        } else {
+          // Fallback: return empty users array if auth service doesn't have user search
+          return res.json({
+            users: [],
+            search_query: searchString,
+            post_type: "users",
+            page: pageNum,
+            limit: limitNum,
+            total: 0,
+            totalPages: 0,
+            is_search: true,
+            content_type: "users",
+            message: "User search not available"
+          });
+        }
+      } catch (error) {
+        logger.error(`Error searching users: ${error.message}`);
+        return res.json({
+          users: [],
+          search_query: searchString,
+          post_type: "users",
+          page: pageNum,
+          limit: limitNum,
+          total: 0,
+          totalPages: 0,
+          is_search: true,
+          content_type: "users",
+          error: "User search failed"
+        });
+      }
+    }
+
+    // Rest of your existing code for posts/videos/reels search...
     // Get user's following list
     let followingUserIds = [];
     try {
@@ -85,8 +256,8 @@ router.get("/search", async (req, res) => {
       ];
     }
 
-    // Add post_type filter if specified
-    if (post_type) {
+    // Add post_type filter if specified (for posts, not users)
+    if (post_type && post_type !== "users") {
       if (post_type === "reel") {
         baseWhereClause.is_reel = true;
         baseWhereClause.post_type = "video";
@@ -98,21 +269,9 @@ router.get("/search", async (req, res) => {
       }
     }
 
-    // Debug: Log the where clause to see what's being queried
-    console.log("Search query params:", {
-      searchString,
-      post_type,
-      userId,
-      isSearchOperation,
-      followingCount: followingUserIds.length,
-      baseWhereClause: JSON.stringify(baseWhereClause, null, 2)
-    });
-
     // Count total matching posts
     const total = await Post.count({ where: baseWhereClause });
     
-    console.log(`Total posts matching criteria: ${total}`);
-
     // Calculate limits for followed users (20%) and public posts (80%)
     const followedUsersLimit = Math.ceil(limitNum * 0.2); // 20% for followed users
     const publicPostsLimit = limitNum - followedUsersLimit; // 80% for public posts
@@ -126,8 +285,6 @@ router.get("/search", async (req, res) => {
         user_id: { [Op.in]: followingUserIds },
       };
 
-      console.log(`Getting ${followedUsersLimit} posts from followed users`);
-
       const followedUsersPosts = await Post.findAll({
         where: followedUsersWhereClause,
         order: [[sequelize.literal(`md5('${seed}' || post_id::text)`), "ASC"]],
@@ -136,7 +293,6 @@ router.get("/search", async (req, res) => {
       });
 
       allPosts = followedUsersPosts;
-      console.log(`Found ${followedUsersPosts.length} posts from followed users`);
     }
 
     // Get public posts from non-followed users (80% of the limit)
@@ -151,8 +307,6 @@ router.get("/search", async (req, res) => {
         },
       };
 
-      console.log(`Getting ${publicPostsLimit} posts from public users`);
-
       const publicPosts = await Post.findAll({
         where: publicPostsWhereClause,
         order: [[sequelize.literal(`md5('${seed}' || post_id::text)`), "ASC"]],
@@ -161,14 +315,11 @@ router.get("/search", async (req, res) => {
       });
 
       allPosts = allPosts.concat(publicPosts);
-      console.log(`Found ${publicPosts.length} posts from public users`);
     }
 
     // If we still don't have enough posts, fill with any remaining public posts
     const remainingLimit = limitNum - allPosts.length;
     if (remainingLimit > 0) {
-      console.log(`Need ${remainingLimit} more posts, getting any public posts`);
-      
       const anyPublicWhereClause = {
         ...baseWhereClause,
         user_id: { [Op.ne]: userId }, // Exclude only self
@@ -182,7 +333,6 @@ router.get("/search", async (req, res) => {
       });
 
       allPosts = allPosts.concat(anyPublicPosts);
-      console.log(`Found ${anyPublicPosts.length} additional public posts`);
     }
 
     // Shuffle the combined results to mix followed and public posts
@@ -206,8 +356,6 @@ router.get("/search", async (req, res) => {
 
     // Shuffle posts while maintaining the seed for consistency
     const shuffledPosts = shuffleArray(allPosts, seed + pageNum.toString());
-
-    console.log(`Final result: ${shuffledPosts.length} posts after shuffling`);
 
     // Fetch user data for all posts
     const postsWithUserData = await Promise.all(
